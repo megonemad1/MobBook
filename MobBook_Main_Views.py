@@ -4,10 +4,10 @@ import hashlib
 from datetime import datetime
 from MobBook import app
 from MobBook import Secret
+import json
 
-
-DataBaseFilePath ='Anthology.db';
-
+DataBaseFilePath ='Anthology.db'
+DebugString =""
 def RepresentsInt(s):
     try: 
         int(s)
@@ -46,11 +46,11 @@ def InsertNodeIntoDB(Node):
 		global DataBaseFilePath
 		conn = sqlite3.connect(DataBaseFilePath)
 		c = conn.cursor()
-		c.execute("INSERT INTO ActI(Parent,Rating,Body,Hits) VALUES (?,0,?,1)",(Node['Parent'],Node['Body'],))			
+		c.execute("INSERT INTO ActI(Parent,Rating,Body,Hits) VALUES (?,0,?,0)",(Node['Parent'],Node['Body'],))			
 		NextNodeId=c.lastrowid
 		c.close()
 		conn.commit()
-		return {'Id': NextNodeId,'Parent':Node['Parent'],'Rating':0, 'Body':Node['Body'], 'Hits':1}
+		return {'Id': NextNodeId,'Parent':Node['Parent'],'Rating':0, 'Body':Node['Body'], 'Hits':0}
 	else:
 		return None
 
@@ -68,7 +68,7 @@ def CreateHash(IP = None):
 		Hash.update(IP.encode('utf-8'))
 		Hash.update(datetime.now().replace(second=0, microsecond=0).ctime().encode('utf-8'))
 		Hash.update(Secret.SecretText.encode('utf-8'))
-		return Hash.digest()
+		return str(Hash.digest()).encode("hex")
 	return None
 def UpRateNode(NodeId= None):
 	if (IDSafeNode(NodeId)!=None):
@@ -122,11 +122,14 @@ def CompileStory(NodeId):
 def CompileResponce(_request=None,NodeId=None):
 	Node=IDSafeNode(NodeId)
 	if (Node !=None and _request !=None):
-		if (request.cookies.get('Btn'+str(NodeId))=="True"):
+		cookie= request.cookies.get('Btn'+str(NodeId))
+		if (cookie=="True"):
 			Rated=True
 		else:
 			Rated=False
-		AddHit(NodeId)
+			if cookie==None:
+				AddHit(NodeId)
+				Node=IDSafeNode(NodeId)
 		Child_list=GetNodeChildren(NodeId)
 		if (_request.method=='POST'):			
 			if ('TxtAddNode' in request.form):
@@ -144,9 +147,24 @@ def CompileResponce(_request=None,NodeId=None):
 					Resp=make_response(redirect('/ID/'+str(Node['Id'])))
 					Resp.set_cookie('Btn'+str(NodeId), "True")
 					return Resp
-		return make_response(render_template('Basic_Layout.html',	Child_list=Child_list, Node= Node, Rated=Rated))
+		Resp=make_response(render_template('Basic_Layout.html',Child_list=Child_list, Node= Node, Rated=Rated))
+		if request.cookies.get('Btn'+str(NodeId))==None:
+			Resp.set_cookie('Btn'+str(NodeId),"False")
+		return Resp
 	return None
 
+
+def Dbug(O):
+	global DebugString
+	try:
+		DebugString+=json.dumps(O) +'\n'
+	except Exception, e:
+		DebugString+=O
+	
+@app.route('/debug',methods=['GET','POST'])
+def Debug():
+	DebugString+"\n------------------------------------------------\n"
+	return DebugString
 @app.route('/ID/<NodeId>',methods=['GET','POST'])
 def NodePage(NodeId=None):
 	Resp=CompileResponce(request,NodeId)
@@ -163,6 +181,7 @@ def home():
 		if Resp==None:
 			return "error"
 		if (request.method=="GET"):
-			Resp.set_cookie('TimeOut', str(CreateHash(request.remote_addr)))
+			H=str(CreateHash(request.remote_addr))
+			Resp.set_cookie('TimeOut', H)
 		print (request)
 		return Resp
